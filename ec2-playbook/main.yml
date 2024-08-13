@@ -1,0 +1,267 @@
+---
+- name: Launch EC2 instance with various configurations
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars_prompt:
+    - name: "instance_name"
+      prompt: "Enter the name for the new EC2 instance"
+      private: no
+    - name: "instance_type"
+      prompt: "Enter the type for the new EC2 instance"
+      private: no
+    - name: "volume_size"
+      prompt: "Enter the EBS volume size in GB"
+      private: no
+    - name: "volume_type"
+      prompt: "Enter the EBS volume type (e.g., gp2, io1, st1, sc1)"
+      private: no
+    - name: "os_choice"
+      prompt: "Choose the OS for the EC2 instance (amazon_linux, ubuntu, centos)"
+      private: no
+    - name: "vpc_id"
+      prompt: "Enter the existing VPC ID (leave blank if not applicable)"
+      private: no
+    - name: "public_subnet_id"
+      prompt: "Enter the public subnet ID (leave blank if not applicable)"
+      private: no
+    - name: "private_subnet_id"
+      prompt: "Enter the private subnet ID (leave blank if not applicable)"
+      private: no
+    - name: "security_group_id"
+      prompt: "Enter the security group ID (leave blank if not applicable)"
+      private: no
+    - name: "key_name"
+      prompt: "Enter the key name to use (leave blank if not applicable)"
+      private: no
+    - name: "internet_gateway_id"
+      prompt: "Enter the internet gateway ID to use (leave blank if not applicable)"
+      private: no
+    - name: "route_table_id"
+      prompt: "Enter the route table ID to use (leave blank if not applicable)"
+      private: no
+
+  vars:
+    region: "eu-north-1"
+    ami_ids:
+      amazon_linux: "ami-02af70169146bbdd3"  # Replace with a valid Amazon Linux 2 AMI ID
+      ubuntu: "ami-07a0715df72e58928"        # Replace with a valid Ubuntu AMI ID
+      centos: "ami-01501da65da38d4a2"        # Replace with a valid CentOS AMI ID
+    new_key_name: "ansible_key_{{ lookup('pipe', 'date +%s') }}"  # Unique key name
+    key_name_to_use: "{{ key_name | default(new_key_name) }}"
+    key_file_path: "/home/ubuntu/Ansible/keys/{{ key_name_to_use }}.pem"
+
+  tasks:
+    - name: Read user data script from file
+      ansible.builtin.slurp:
+        src: "/home/ubuntu/Ansible/nginx.sh"
+      register: nginx
+
+    - name: Decode user data script
+      ansible.builtin.set_fact:
+        user_data_encoded: "{{ nginx['content'] | b64decode }}"
+
+    - name: List existing key pairs
+      amazon.aws.ec2_key_info:
+        region: "{{ region }}"
+      register: key_pairs_output
+
+    - name: Debug key pairs output
+      debug:
+        var: key_pairs_output
+
+    - name: Set fact if key pair exists
+      set_fact:
+        key_pair_exists: "{{ key_name_to_use in (key_pairs_output.keypairs | map(attribute='key_name') | list) }}"
+
+    - name: Debug key pair exists
+      debug:
+        var: key_pair_exists
+
+    - name: Create key pair if it doesn't exist
+      amazon.aws.ec2_key:
+        name: "{{ key_name_to_use }}"
+        region: "{{ region }}"
+        state: present
+      register: key_pair
+      when: not key_pair_exists
+
+    - name: Debug key pair
+      debug:
+        var: key_pair
+
+    - name: Save the key pair to a file
+      copy:
+        content: "{{ key_pair.key.private_key }}"
+        dest: "{{ key_file_path }}"
+        mode: '0600'
+      when: not key_pair_exists and key_pair.key is defined and key_pair.key.private_key is defined
+
+    - name: Create a new VPC if required
+      ec2_vpc_net:
+        name: "{{ instance_name }}.vpc"
+        cidr_block: "10.0.0.0/16"
+        region: "{{ region }}"
+        state: present
+      register: vpc
+      when: vpc_id == ""
+
+    - name: Set VPC ID
+      set_fact:
+        vpc_id: "{{ vpc.vpc.id }}"
+      when: vpc_id == ""
+
+    - name: Debug VPC ID
+      debug:
+        msg: "VPC ID: {{ vpc_id }}"
+
+    - name: Create public subnet
+      ec2_vpc_subnet:
+        tags:
+          Name: "{{ instance_name }}.s1"
+        vpc_id: "{{ vpc_id }}"
+        cidr: "10.0.1.0/24"
+        region: "{{ region }}"
+        map_public: yes
+        state: present
+      register: public_subnet
+      when: public_subnet_id == ""
+
+    - name: Set public subnet ID
+      set_fact:
+        public_subnet_id: "{{ public_subnet.subnet.id }}"
+      when: public_subnet_id == ""
+
+    - name: Create private subnet
+      ec2_vpc_subnet:
+        tags:
+          Name: "{{ instance_name }}.s2"
+        vpc_id: "{{ vpc_id }}"
+        cidr: "10.0.2.0/24"
+        region: "{{ region }}"
+        state: present
+      register: private_subnet
+      when: private_subnet_id == ""
+
+    - name: Set private subnet ID
+      set_fact:
+        private_subnet_id: "{{ private_subnet.subnet.id }}"
+      when: private_subnet_id == ""
+
+    - name: Create an Internet Gateway if not already created
+      amazon.aws.ec2_vpc_igw:
+        region: "{{ region }}"
+        vpc_id: "{{ vpc_id }}"
+        state: present
+      register: internet_gateway
+      when: internet_gateway_id == ""
+
+    - name: Set internet gateway ID
+      set_fact:
+        internet_gateway_id: "{{ internet_gateway.gateway_id }}"
+      when: internet_gateway_id == ""
+
+    - name: Create or Update a Route Table
+      amazon.aws.ec2_vpc_route_table:
+        region: "{{ region }}"
+        vpc_id: "{{ vpc_id }}"
+        tags:
+          Name: "{{ instance_name }}.rt"
+        subnets:
+          - "{{ public_subnet_id }}"
+        routes:
+          - dest: "0.0.0.0/0"
+            gateway_id: "{{ internet_gateway_id }}"
+        state: present
+      register: route_table
+
+    - name: Debug Route Table Output
+      debug:
+        msg: "{{ route_table }}"
+
+    - name: Set route table ID
+      set_fact:
+        route_table_id: "{{ route_table.route_table.id }}"
+      when: route_table_id == ""
+
+    - name: Create security group
+      ec2_group:
+        name: "{{ instance_name }}.sg"
+        description: My_security_group
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ region }}"
+        rules:
+          - proto: tcp
+            from_port: 22
+            to_port: 22
+            cidr_ip: "0.0.0.0/0"
+        state: present
+      register: security_group
+      when: security_group_id == ""
+
+    - name: Set security group ID
+      set_fact:
+        security_group_id: "{{ security_group.group_id }}"
+      when: security_group_id == "" 
+
+    - name: Launch EC2 instance
+      amazon.aws.ec2_instance:
+        name: "{{ instance_name }}"
+        key_name: "{{ key_name_to_use }}"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ ami_ids[os_choice] }}"
+        subnet_id: "{{ public_subnet_id }}"
+        security_group: "{{ security_group_id }}"
+        region: "{{ region }}"
+        state: present
+        user_data: "{{ user_data_encoded }}"
+        volumes:
+          - device_name: "/dev/sda1"
+            ebs:
+              volume_size: "{{ volume_size }}"
+              volume_type: "{{ volume_type }}"
+              delete_on_termination: true
+      register: ec2_instance
+
+    - name: Wait for the instance to be in running state
+      amazon.aws.ec2_instance_info:
+        region: "{{ region }}"
+        instance_ids: "{{ ec2_instance.instance_ids }}"
+      register: ec2_info
+      until: ec2_info.instances[0].state.name == 'running'
+      retries: 10
+      delay: 30
+
+    - name: Fetch EC2 instance details
+      amazon.aws.ec2_instance_info:
+        region: "{{ region }}"
+        instance_ids: "{{ ec2_instance.instance_ids[0] }}"
+      register: ec2_instance_info
+
+    - name: Allocate a new Elastic IP if public_ip is not provided
+      amazon.aws.ec2_eip:
+        region: "{{ region }}"
+        state: present
+      register: new_eip
+      when: public_ip is not defined or public_ip == ""
+
+    - name: Associate Elastic IP with the instance
+      command: >
+        aws ec2 associate-address
+        --region {{ region }}
+        --instance-id {{ ec2_instance.instance_ids[0] }}
+        --allocation-id {{ new_eip.allocation_id }}
+      when: new_eip is defined and new_eip.allocation_id is defined
+      register: elastic_ip_association
+
+    - name: Set public IP address fact
+      set_fact:
+        public_ip: "{{ new_eip.public_ip if new_eip is defined else ec2_instance_info.instances[0].public_ip_address }}"
+
+    - name: Wait for SSH to become available
+      wait_for:
+        host: "{{ public_ip }}"
+        port: 22
+        delay: 60
+        timeout: 120
+        state: started

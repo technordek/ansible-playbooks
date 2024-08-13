@@ -1,0 +1,9 @@
+vars:
+    region: "eu-north-1"
+    ami_ids:
+      amazon_linux: "ami-02af70169146bbdd3"  # Replace with a valid Amazon Linux 2 AMI ID
+      ubuntu: "ami-07a0715df72e58928"        # Replace with a valid Ubuntu AMI ID
+      centos: "ami-01501da65da38d4a2"        # Replace with a valid CentOS AMI ID
+    new_key_name: "ansible_key_{{ lookup('pipe', 'date +%s') }}"  # Unique key name
+    key_name_to_use: "{{ key_name | default(new_key_name) }}"
+    key_file_path: "/home/ubuntu/Ansible/keys/{{ key_name_to_use }}.pem"
