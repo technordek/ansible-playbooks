@@ -35,15 +35,15 @@ When prompted by ansible playbook for launching an EC2 similar to other ec2 inst
 
 We can follow this format:
 
-Enter the name for the new EC2 instance: nameofinstance
-Enter the type for the new EC2 instance: t3.medium
-Enter the EBS volume size in GB: 30
-Enter the EBS volume type (e.g., gp2, io1, st1, sc1): gp3
-Choose the OS for the EC2 instance (amazon_linux, ubuntu, centos): ubuntu
-Enter the existing VPC ID (leave blank if not applicable): vpc-02815fe7d001d0224
-Enter the public subnet ID (leave blank if not applicable): subnet-0581563a893bbcc73
-Enter the private subnet ID (leave blank if not applicable): subnet-07460c9d948029599
-Enter the security group ID (leave blank if not applicable): 
-Enter the key name to use (leave blank if not applicable): nameofinstance-key
-Enter the internet gateway ID to use (leave blank if not applicable): igw-0e34d32a90d06dfdf
-Enter the route table ID to use (leave blank if not applicable): 
+- Enter the name for the new EC2 instance: nameofinstance
+- Enter the type for the new EC2 instance: t3.medium
+- Enter the EBS volume size in GB: 30
+- Enter the EBS volume type (e.g., gp2, io1, st1, sc1): gp3
+- Choose the OS for the EC2 instance (amazon_linux, ubuntu, centos): ubuntu
+- Enter the existing VPC ID (leave blank if not applicable): vpc-02815fe7d001d0224
+- Enter the public subnet ID (leave blank if not applicable): subnet-0581563a893bbcc73
+- Enter the private subnet ID (leave blank if not applicable): subnet-07460c9d948029599
+- Enter the security group ID (leave blank if not applicable): 
+- Enter the key name to use (leave blank if not applicable): nameofinstance-key
+- Enter the internet gateway ID to use (leave blank if not applicable): igw-0e34d32a90d06dfdf
+- Enter the route table ID to use (leave blank if not applicable): 
